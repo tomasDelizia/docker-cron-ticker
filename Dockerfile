@@ -1,11 +1,9 @@
 # Dockerfile for cron-ticker service
 # This Dockerfile sets up a Node.js environment for the cron-ticker service
 # It uses the official Node.js Alpine image for a lightweight build
-# FROM node:24-alpine3.22
-FROM --platform=$BUILDPLATFORM node:24-alpine3.22
 
-# Print the build and target platform information to a log file
-RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM" > /log
+# STAGE 1: Build dependencies
+FROM node:24-alpine3.22 as dependencies
 
 # Change the working directory to /app
 WORKDIR /app
@@ -16,6 +14,15 @@ COPY package.json .
 # Install the necessary dependencies
 RUN npm install
 
+
+# STAGE 2: Tests
+FROM node:24-alpine3.22 as test-build
+
+WORKDIR /app
+
+# Copy dependencies from the previous stage
+COPY --from=dependencies /app/node_modules ./node_modules
+
 # Copy the application code into the container
 COPY . .
 
@@ -23,11 +30,30 @@ COPY . .
 # This step ensures that the application is working correctly before starting it
 RUN npm run test
 
-# Remove development dependencies to keep the image size small
-RUN rm -rf tests && rm -rf node_modules
 
-# Reinstall only production dependencies
+# STAGE 3: Build production dependencies
+FROM node:24-alpine3.22 as dependencies-prod
+
+# Change the working directory to /app
+WORKDIR /app
+
+# Copy the package.json file into the container
+COPY package.json .
+
+# Install the necessary dependencies
 RUN npm install --prod
+
+# STAGE 4: Production build
+FROM node:24-alpine3.22 as runner
+
+WORKDIR /app
+
+# Copy dependencies from the previous stage
+COPY --from=dependencies-prod /app/node_modules ./node_modules
+
+# Copy the application code into the container
+COPY app.js .
+COPY tasks ./tasks
 
 # Set the command to run the cron-ticker service
 CMD ["npm", "start"]
